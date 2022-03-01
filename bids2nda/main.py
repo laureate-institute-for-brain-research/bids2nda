@@ -62,6 +62,7 @@ def get_metadata_for_nifti(bids_root, path):
     merged_param_dict = {}
     for json_file_path in potentialJSONs:
         if os.path.exists(json_file_path):
+            #print(json_file_path)
             param_dict = json.load(open(json_file_path, "r"))
             merged_param_dict.update(param_dict)
 
@@ -136,8 +137,11 @@ def run(args):
                            "PD": "MR structural (PD)",
                            #"MR structural(FSPGR)",
                            "T2w": "MR structural (T2)",
-                           "FLAIR": "FLAIR",
+                           "FLAIR": "MR: FLAIR",
                            "FLASH": "MR structural (FLASH)",
+                           "FRFSE": "FRFSE",
+                           "calibration": "calibration",
+                           "magic": "magic",
                            #PET;
                             #ASL;
                             #microscopy;
@@ -166,13 +170,26 @@ def run(args):
     for file in glob(os.path.join(args.bids_directory, "sub-*", "*", "sub-*.nii.gz")) + \
             glob(os.path.join(args.bids_directory, "sub-*", "ses-*", "*", "sub-*_ses-*.nii.gz")):
 
+        print(file)
+        if '.face.nii.gz' in file: continue
         metadata = get_metadata_for_nifti(args.bids_directory, file)
 
+        
         bids_subject_id = os.path.split(file)[-1].split("_")[0][4:]
-        dict_append(image03_dict, 'subjectkey', guid_mapping[bids_subject_id])
-        dict_append(image03_dict, 'src_subject_id', bids_subject_id)
+
+        #print(guid_mapping)
+        if not bids_subject_id in guid_mapping.keys():
+            print('no ndaguid %s skipping..' % bids_subject_id)
+            continue
+
 
         sub = file.split("sub-")[-1].split("_")[0]
+        try:
+            interview_age = int(round(list(participants_df[participants_df.participant_id == "sub-" + sub].age)[0], 0))*12
+        except:
+            print('%s not in participants file' % sub)
+            continue
+
         if "ses-" in file:
             ses = file.split("ses-")[-1].split("_")[0]
             scans_file = (os.path.join(args.bids_directory, "sub-" + sub, "ses-" + ses, "sub-" + sub + "_ses-" + ses + "_scans.tsv"))
@@ -183,16 +200,23 @@ def run(args):
             scans_df = pd.read_csv(scans_file, header=0, sep="\t")
         else:
             print("%s file not found - information about scan date required by NDA could not be found." % scans_file)
-            sys.exit(-1)
+            #sys.exit(-1)
+            continue
+
+        # At this point - it should all be valid
+        dict_append(image03_dict, 'subjectkey', guid_mapping[bids_subject_id])
+        dict_append(image03_dict, 'src_subject_id', bids_subject_id)
         for (_, row) in scans_df.iterrows():
             if file.endswith(row["filename"].replace("/", os.sep)):
                 date = row.acq_time
                 break
-
+        
+        
+        #print(file)
         sdate = date.split("-")
         ndar_date = sdate[1] + "/" + sdate[2].split("T")[0] + "/" + sdate[0]
         dict_append(image03_dict, 'interview_date', ndar_date)
-
+        
         interview_age = int(round(list(participants_df[participants_df.participant_id == "sub-" + sub].age)[0], 0))*12
         dict_append(image03_dict, 'interview_age', interview_age)
 
@@ -351,7 +375,7 @@ def run(args):
 
         # comply with image03 changes from 12/30/19
         # https://nda.nih.gov/data_structure_history.html?short_name=image03
-        
+
         dict_append(image03_dict, 'deviceserialnumber', "")
         dict_append(image03_dict, 'procdate', "")
         dict_append(image03_dict, 'visnum', "")
